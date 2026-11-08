@@ -9,9 +9,12 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
+    "dev:client": "npm --prefix client run dev",
+    "build:client": "npm --prefix client run build",
     "test:concurrency": "node scripts/concurrency-test.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",

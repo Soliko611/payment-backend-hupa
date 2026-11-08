@@ -1,4 +1,4 @@
-import { executeTransfer } from '../services/transferService.js';
+import { executeTransfer, getTransferHistory } from '../services/transferService.js';
 
 export async function executeTransferController(req, res) {
   const result = await executeTransfer(
@@ -8,4 +8,9 @@ export async function executeTransferController(req, res) {
     req.get('Idempotency-Key')
   );
   return res.status(201).json(result.responseBody);
+}
+
+export async function getTransferHistoryController(req, res) {
+  const transfers = await getTransferHistory(req.user.id);
+  return res.json({ transfers });
 }

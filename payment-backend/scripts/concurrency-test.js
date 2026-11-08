@@ -118,12 +118,15 @@ try {
        (SELECT COUNT(*)::int FROM transfers
         WHERE sender_id = ANY($1::int[]) AND receiver_id = ANY($1::int[])) AS transfer_count,
        (SELECT COUNT(*)::int FROM audit_logs
-        WHERE user_id = ANY($1::int[]) AND event_type = 'transfer.failed') AS failure_count,
+        WHERE user_id = ANY($1::int[]) AND event_type = 'TRANSFER_SUCCESS') AS success_count,
        (SELECT COUNT(*)::int FROM audit_logs
-        WHERE user_id = ANY($1::int[]) AND event_type = 'transfer.idempotency_replayed') AS replay_count`,
+        WHERE user_id = ANY($1::int[]) AND event_type = 'TRANSFER_FAILED') AS failure_count,
+       (SELECT COUNT(*)::int FROM audit_logs
+        WHERE user_id = ANY($1::int[]) AND event_type = 'TRANSFER_IDEMPOTENCY_REPLAYED') AS replay_count`,
     [testUserIds]
   );
   assert.equal(audit.rows[0].transfer_count, 4, 'Only committed transfers should have transfer rows');
+  assert.equal(audit.rows[0].success_count, 4, 'Every committed transfer should have a success audit row');
   assert.equal(audit.rows[0].failure_count, 2, 'Both rejected operations should be audited');
   assert.equal(audit.rows[0].replay_count, 1, 'The idempotent retry should be audited');
 

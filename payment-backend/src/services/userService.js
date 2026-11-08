@@ -12,3 +12,11 @@ export async function getUserById(userId) {
   const user = result.rows[0];
   return { ...user, balance: String(user.balance) };
 }
+
+export async function listUsers(excludedUserId) {
+  const result = await pool.query(
+    'SELECT id, username FROM users WHERE id <> $1 ORDER BY username LIMIT 100',
+    [excludedUserId]
+  );
+  return result.rows;
+}

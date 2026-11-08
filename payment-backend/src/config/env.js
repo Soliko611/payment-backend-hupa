@@ -29,6 +29,6 @@ export const env = Object.freeze({
   jwtSecret,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '1h',
   cookieSecure: process.env.COOKIE_SECURE === 'true',
-  corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:3000',
+  corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
   poolMax
 });

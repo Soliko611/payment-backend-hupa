@@ -1,15 +1,17 @@
-# Secure Wallet Backend
+# Northstar Wallet
 
-A small Express/PostgreSQL wallet API using ES modules. Balances are held as integer minor units (the initial balance is `1000`); transfer amounts must be positive safe integers. PostgreSQL stores balances and transfer amounts as `BIGINT`, and the API serializes them as decimal strings to avoid JavaScript precision loss.
+An Express wallet API with a React dashboard. PostgreSQL stores balances and transfer amounts as integer wallet units (`1000` for a new account); the API serializes them as decimal strings to avoid JavaScript precision loss. Supabase can host the PostgreSQL database while the backend retains responsibility for authentication and atomic transfers.
 
 ## Requirements
 
-- Node.js 20 or newer
-- Docker Compose, or a PostgreSQL server you manage
+- Node.js 20 or newer for the API; Node.js 20.19+ or 22.12+ for Vite
+- A Supabase project, or Docker Compose for local PostgreSQL
 
 ## Setup
 
-1. Start PostgreSQL and initialize the schema:
+To use Supabase, copy the PostgreSQL connection URI from **Project Settings → Database → Connection string** and set it as `DATABASE_URL` in `.env`. Use a connection method supported by your host (the session pooler works for IPv4-only environments) and require SSL. The backend connects to Supabase PostgreSQL with `pg`; transfer operations remain inside database transactions. Do not put a database password or Supabase secret/service-role key in the React app.
+
+For local development, start PostgreSQL and initialize the schema:
 
    ```sh
    docker compose up -d postgres
@@ -17,13 +19,17 @@ A small Express/PostgreSQL wallet API using ES modules. Balances are held as int
 
    Docker runs `sql/schema.sql` on the database's first initialization. For an existing database, apply it explicitly:
 
-   ```sh
+   ```
+
+   For Supabase, paste the contents of `sql/schema.sql` into the project's SQL Editor and run it.
+
+   If your database was initialized before email sign-in was added, apply `sql/migrations/20261102_allow_email_login.sql` once (for Supabase, run it in the SQL Editor). This preserves existing usernames and allows email addresses as sign-in names.sh
    psql "postgres://wallet:wallet_dev_password@localhost:5432/wallet" -f sql/schema.sql
    ```
 
-2. Copy `.env.example` to `.env`. Set `DATABASE_URL` to your database, and replace `JWT_SECRET` with a cryptographically random secret of at least 32 bytes. For example, generate one with `node -e "console.log(require('node:crypto').randomBytes(48).toString('base64'))"`.
+Copy `.env.example` to `.env`, set `DATABASE_URL` to your database, and replace `JWT_SECRET` with a cryptographically random secret of at least 32 bytes. For example, generate one with `node -e "console.log(require('node:crypto').randomBytes(48).toString('base64'))"`. Set `CORS_ORIGIN=http://localhost:5173` for the local React development server.
 
-3. Install dependencies and start the API:
+Install backend dependencies and start the API:
 
    ```sh
    npm install
@@ -32,26 +38,38 @@ A small Express/PostgreSQL wallet API using ES modules. Balances are held as int
 
    The API listens on port `3000` by default. `GET /health` is a basic liveness endpoint.
 
+In a second terminal, install and start the React app:
+
+```sh
+npm --prefix client install
+npm run dev:client
+```
+
+Open the Vite URL (by default `http://localhost:5173`). The development server proxies API requests to `http://localhost:3000`. To use another API origin, set `VITE_API_URL` in `client/.env.local`. Keep the frontend and API on the same site when using the default strict session cookie.
+
 ## Environment variables
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
+| `DATABASE_URL` | Yes | — | PostgreSQL connection string (Supabase PostgreSQL is supported) |
 | `JWT_SECRET` | Yes | — | HS256 signing key; at least 32 bytes |
 | `PORT` | No | `3000` | HTTP listen port |
 | `JWT_EXPIRES_IN` | No | `1h` | JWT lifetime |
 | `COOKIE_SECURE` | No | `false` | Set `true` behind HTTPS in production |
-| `CORS_ORIGIN` | No | `http://localhost:3000` | Allowed browser origin |
+| `CORS_ORIGIN` | No | `http://localhost:5173` | Allowed browser origin |
 | `PG_POOL_MAX` | No | `10` | Maximum PostgreSQL pool size |
 | `API_URL` | No | `http://localhost:3000` | Base URL used by the concurrency test |
+| `VITE_API_URL` | No | Vite proxy | Optional API base URL for the React app |
 
 ## API
 
-- `POST /api/auth/register` — JSON `{ "username": "alice", "password": "at-least-12-chars" }`; creates a user with 1000 units and returns a session token.
-- `POST /api/auth/login` — JSON `{ "username": "alice", "password": "..." }`; returns a session token.
+- `POST /api/auth/register` — JSON `{ "username": "alice or alice@example.com", "password": "at-least-12-chars" }`; creates a user with 1000 units and returns a session token.
+- `POST /api/auth/login` — JSON `{ "username": "alice or alice@example.com", "password": "..." }`; returns a session token.
 - `POST /api/auth/logout` — clears the session cookie.
 - `GET /api/users/me` — authenticated account details.
+- `GET /api/users` — up to 100 other account usernames for the transfer recipient list.
 - `POST /api/transfers` — authenticated JSON `{ "receiverId": 2, "amount": 100 }`. An optional `Idempotency-Key` header must be a UUID. Repeating the same key and payload returns the original response without executing another transfer; reusing a key with a different payload returns `409`. `senderId` is never read from the request; the authenticated identity is the sender.
+- `GET /api/transfers` — the authenticated user's 20 most recent sent or received transfers.
 
 Authentication accepts either the `token` HttpOnly cookie or an `Authorization: Bearer <token>` header. Token responses include the token for clients that prefer header-based authentication. Configure HTTPS and `COOKIE_SECURE=true` in production. Use a specific trusted `CORS_ORIGIN`; do not use wildcard origins with credentials.
 

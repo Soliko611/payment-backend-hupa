@@ -1,10 +1,13 @@
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
-  username VARCHAR(50) NOT NULL UNIQUE,
+  username VARCHAR(254) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   balance BIGINT NOT NULL DEFAULT 1000 CHECK (balance >= 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT users_username_format CHECK (username ~ '^[a-zA-Z0-9_]{3,50}$')
+  CONSTRAINT users_username_format CHECK (
+    username ~ '^[a-zA-Z0-9_]{3,50}$'
+    OR username ~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$'
+  )
 );
 
 CREATE TABLE IF NOT EXISTS transfers (

@@ -6,10 +6,15 @@ import { HttpError } from '../utils/httpError.js';
 
 const bcryptRounds = 12;
 const usernamePattern = /^[a-zA-Z0-9_]{3,50}$/;
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validateCredentials(username, password) {
-  if (typeof username !== 'string' || !usernamePattern.test(username)) {
-    throw new HttpError(400, 'Username must be 3-50 letters, numbers, or underscores');
+  const isUsername = typeof username === 'string' && usernamePattern.test(username);
+  const isEmail = typeof username === 'string'
+    && username.length <= 254
+    && emailPattern.test(username);
+  if (!isUsername && !isEmail) {
+    throw new HttpError(400, 'Enter a valid email address or a username with 3-50 letters, numbers, or underscores');
   }
   if (
     typeof password !== 'string' ||
