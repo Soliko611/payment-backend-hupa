@@ -1,4 +1,6 @@
-const apiBaseUrl = import.meta.env.VITE_API_URL ?? '';
+const apiBaseUrl = (
+  import.meta.env.VITE_API_URL || 'https://payment-backend-hupa.onrender.com'
+).replace(/\/+$/, '');
 
 export class ApiError extends Error {
   constructor(message, status) {
