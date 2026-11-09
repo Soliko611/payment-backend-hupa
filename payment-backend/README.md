@@ -27,7 +27,7 @@ For local development, start PostgreSQL and initialize the schema:
    psql "postgres://wallet:wallet_dev_password@localhost:5432/wallet" -f sql/schema.sql
    ```
 
-Copy `.env.example` to `.env`, set `DATABASE_URL` to your database, and replace `JWT_SECRET` with a cryptographically random secret of at least 32 bytes. For example, generate one with `node -e "console.log(require('node:crypto').randomBytes(48).toString('base64'))"`. Set `CORS_ORIGIN=http://localhost:5173` for the local React development server.
+Copy `.env.example` to `.env`, set `DATABASE_URL` to your database, and replace `JWT_SECRET` with a cryptographically random secret of at least 32 bytes. For example, generate one with `node -e "console.log(require('node:crypto').randomBytes(48).toString('base64'))"`. `CORS_ORIGIN` accepts a comma-separated list of trusted frontend origins. The local development origin and `https://payment-backend-hupa-1.onrender.com` are always allowed.
 
 Install backend dependencies and start the API:
 
@@ -56,7 +56,7 @@ Open the Vite URL (by default `http://localhost:5173`). The development server p
 | `PORT` | No | `3000` | HTTP listen port |
 | `JWT_EXPIRES_IN` | No | `1h` | JWT lifetime |
 | `COOKIE_SECURE` | No | `false` | Set `true` behind HTTPS in production |
-| `CORS_ORIGIN` | No | `http://localhost:5173` | Allowed browser origin |
+| `CORS_ORIGIN` | No | Local and deployed frontend origins | Additional trusted browser origins (comma-separated) |
 | `PG_POOL_MAX` | No | `10` | Maximum PostgreSQL pool size |
 | `API_URL` | No | `http://localhost:3000` | Base URL used by the concurrency test |
 | `VITE_API_URL` | No | Vite proxy | Optional API base URL for the React app |

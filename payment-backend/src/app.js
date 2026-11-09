@@ -14,9 +14,9 @@ const app = express();
 app.disable('x-powered-by');
 app.use(helmet());
 app.use(cors({
-  origin: env.corsOrigin,
+  origin: env.corsOrigins,
   credentials: true,
-  methods: ['GET', 'POST'],
+  methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key']
 }));
 app.use(express.json({ limit: '10kb' }));

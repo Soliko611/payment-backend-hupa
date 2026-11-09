@@ -22,6 +22,12 @@ if (!Number.isInteger(poolMax) || poolMax < 1) {
   throw new Error('PG_POOL_MAX must be a positive integer');
 }
 
+const corsOrigins = [
+  'http://localhost:5173',
+  'https://payment-backend-hupa-1.onrender.com',
+  ...(process.env.CORS_ORIGIN ?? '').split(',').map((origin) => origin.trim()).filter(Boolean)
+];
+
 export const env = Object.freeze({
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port,
@@ -29,6 +35,6 @@ export const env = Object.freeze({
   jwtSecret,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '1h',
   cookieSecure: process.env.COOKIE_SECURE === 'true',
-  corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
+  corsOrigins: [...new Set(corsOrigins)],
   poolMax
 });
