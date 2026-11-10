@@ -1,94 +1,180 @@
 # Northstar Wallet
 
-An Express wallet API with a React dashboard. PostgreSQL stores balances and transfer amounts as integer wallet units (`1000` for a new account); the API serializes them as decimal strings to avoid JavaScript precision loss. Supabase can host the PostgreSQL database while the backend retains responsibility for authentication and atomic transfers.
+## Overview & Architecture
 
-## Requirements
+Northstar Wallet is a high-concurrency financial wallet backend built with Node.js, Express, and PostgreSQL. It is designed to make balance-changing operations correct under concurrent traffic, with Supabase PostgreSQL supported as a hosted database.
 
-- Node.js 20 or newer for the API; Node.js 20.19+ or 22.12+ for Vite
-- A Supabase project, or Docker Compose for local PostgreSQL
+The request path is:
 
-## Setup
+```text
+React client -> Express API -> PostgreSQL (local or Supabase)
+```
 
-To use Supabase, copy the PostgreSQL connection URI from **Project Settings → Database → Connection string** and set it as `DATABASE_URL` in `.env`. Use a connection method supported by your host (the session pooler works for IPv4-only environments) and require SSL. The backend connects to Supabase PostgreSQL with `pg`; transfer operations remain inside database transactions. Do not put a database password or Supabase secret/service-role key in the React app.
+The client handles presentation and sends authenticated API requests. Express routes and middleware enforce the HTTP and authentication boundary; controllers translate requests; services own validation, SQL, and transaction behavior. PostgreSQL is the source of truth for balances, transfers, idempotency records, and audit events.
 
-For local development, start PostgreSQL and initialize the schema:
+Balances and transfer amounts are integer wallet units (`1000` for a new account). API responses serialize amounts as decimal strings to avoid JavaScript precision loss. PostgreSQL transactions and constraints protect financial state; Supabase hosts PostgreSQL but does not replace the backend's authorization or transfer logic.
 
-   ```sh
-   docker compose up -d postgres
-   ```
+**Stack:** Node.js 20+, Express 4, PostgreSQL (`pg` / Supabase), React, and Vite.
 
-   Docker runs `sql/schema.sql` on the database's first initialization. For an existing database, apply it explicitly:
+## Core Engineering Challenges & Solutions
 
-   ```
+### Double-spending and race conditions
 
-   For Supabase, paste the contents of `sql/schema.sql` into the project's SQL Editor and run it.
+Each transfer runs on a dedicated PostgreSQL client inside `BEGIN` / `COMMIT` / `ROLLBACK`. The service locks both participating account rows with `SELECT ... FOR UPDATE`, reads the sender's balance while holding the lock, and rejects an insufficient balance before applying either balance change. Concurrent transfers involving the same account therefore serialize at that account's row lock; a second withdrawal cannot spend a balance already committed by the first.
 
-   If your database was initialized before email sign-in was added, apply `sql/migrations/20261102_allow_email_login.sql` once (for Supabase, run it in the SQL Editor). This preserves existing usernames and allows email addresses as sign-in names.sh
-   psql "postgres://wallet:wallet_dev_password@localhost:5432/wallet" -f sql/schema.sql
-   ```
+### Deadlock elimination through global lock ordering
 
-Copy `.env.example` to `.env`, set `DATABASE_URL` to your database, and replace `JWT_SECRET` with a cryptographically random secret of at least 32 bytes. For example, generate one with `node -e "console.log(require('node:crypto').randomBytes(48).toString('base64'))"`. `CORS_ORIGIN` accepts a comma-separated list of trusted frontend origins. The local development origin and `https://payment-backend-hupa-1.onrender.com` are always allowed.
+Every transfer computes `firstId = Math.min(senderId, receiverId)` and `secondId = Math.max(senderId, receiverId)` and acquires the two row locks in that deterministic order. Opposite-direction transfers follow the same global order, preventing a cycle in which each transaction holds one account while waiting for the other.
 
-Install backend dependencies and start the API:
+### Duplicate-payment prevention
 
-   ```sh
-   npm install
-   npm start
-   ```
+Clients may provide a UUID `Idempotency-Key`. Keys are scoped to the authenticated user and stored with a hash of the request and the original response in the same transfer transaction. Retrying the same key and payload returns the original response without executing another payment; reusing the key with a different payload returns `409 Conflict`. Successful replays are recorded in the audit log.
 
-   The API listens on port `3000` by default. `GET /health` is a basic liveness endpoint.
+### Financial ledger integrity
 
-In a second terminal, install and start the React app:
+- Database constraints reject negative balances, non-positive transfer amounts, invalid account references, and self-transfers.
+- A transfer debits the sender, credits the receiver, inserts the transfer record, completes its idempotency record, and writes the success audit event within one transaction. These changes commit or roll back together.
+- For a transfer between existing accounts, the debit and credit are equal and opposite, preserving the combined wallet balance. Failed operations are audited after the transfer transaction rolls back.
+- The authenticated identity determines the sender; a client-supplied `senderId` is not trusted.
+
+## Test Suite & Concurrency Verification
+
+The custom integration suite at [`scripts/concurrency-test.js`](./scripts/concurrency-test.js) creates temporary accounts and verifies simultaneous withdrawals, opposite-direction transfers, idempotency replay and key reuse, audit events, non-negative balances, and conservation of the initial combined balance.
+
+With the API and database running, `npm run test:concurrency` reports:
+
+```text
+Concurrency test passed:
+- simultaneous double spending allowed exactly one withdrawal
+- opposite-direction transfers completed without deadlock
+- repeated idempotency key returned the original response
+- system invariant preserved: combined balance is 2000
+```
+
+The `2000` total is the combined starting balance of the two test accounts; successful transfers must conserve it.
+
+## Load & Stress Testing (k6)
+
+The reported benchmark used **Grafana k6 v2.3.0** with **5 concurrent VUs** over a **50-second ramp-up and sustained run**, exercising authenticated requests to `/api/users/me`, `/api/users`, and `/api/transfers`.
+
+| Metric | Result |
+| --- | ---: |
+| Total HTTP requests | 496 |
+| Throughput | ~9.67 req/s |
+| Failed HTTP requests | 0 / 496 (0.00%) |
+| Endpoint assertions | 495 / 495 passed (100.00%, HTTP 200) |
+| Average latency | 86.55 ms |
+| Median latency | 77.62 ms |
+| P90 latency | 84.28 ms |
+| P95 latency | 97.83 ms |
+
+The reported P95 was below 100 ms for this workload. The endpoint traffic in the repository's current script is read-only; its login request is a one-time POST during setup, followed by authenticated GET requests. It does **not** generate sustained write traffic. These HTTP results show no request failures during the reported run, but do not by themselves establish PostgreSQL connection-pool stability; database-side pool and connection metrics should be captured for that conclusion.
+
+Reported terminal summary (formatted from the benchmark values supplied for this run; the original k6 stdout was not provided):
+
+```text
+k6 v2.3.0 — 5 VUs — 50s
+http_reqs......................: 496     ~9.67/s
+http_req_failed................: 0.00%   0 out of 496
+checks.........................: 100.00% 495 out of 495
+http_req_duration..............: avg=86.55ms med=77.62ms p(90)=84.28ms p(95)=97.83ms
+```
+
+[`scripts/load-test.js`](./scripts/load-test.js) provides a bounded, read-only authenticated API workload for [k6](https://k6.io/). By default it ramps to 5 VUs, sustains that level for 30 seconds, then ramps down; the hard limit is 10 VUs. It records P95 request latency (`http_req_duration`), request throughput (`http_reqs`), and HTTP/application error rates. Transfers are not created by this script.
+
+Install k6 separately, configure credentials for a dedicated test account, and run against localhost:
+
+```powershell
+$env:LOAD_TEST_USERNAME = "your-test-user"
+$env:LOAD_TEST_PASSWORD = "your-test-password"
+k6 run scripts/load-test.js
+```
+
+The script only permits localhost by default. To run its bounded workload against this project's Render API, explicitly opt in:
+
+```powershell
+$env:BASE_URL = "https://payment-backend-hupa.onrender.com"
+$env:LOAD_TEST_ALLOW_REMOTE = "true"
+k6 run scripts/load-test.js
+```
+
+Use a dedicated test account and an isolated or approved test environment. Record the deployment, database tier, VU profile, and thresholds with each result. The script defines acceptance thresholds but this repository does not claim benchmark numbers.
+
+## Getting Started & API Reference
+
+### Requirements
+
+- Node.js 20 or newer for the API; Node.js 20.19+ or 22.12+ for Vite.
+- PostgreSQL locally, or a Supabase project.
+- Docker Compose for the local PostgreSQL option.
+
+### Configure the database
+
+For local development, start PostgreSQL:
+
+```sh
+docker compose up -d postgres
+```
+
+On its first initialization, Docker applies `sql/schema.sql` automatically. To initialize an existing local database, apply the schema explicitly:
+
+```sh
+psql "$DATABASE_URL" -f sql/schema.sql
+```
+
+For Supabase, open the project's **SQL Editor**, run the contents of [`sql/schema.sql`](./sql/schema.sql), then copy the PostgreSQL connection URI from **Project Settings → Database → Connection string**. Set it as `DATABASE_URL` in the backend `.env`. Use a connection method supported by your environment, require SSL, and keep database credentials out of source control and the frontend.
+
+### Configure and run the backend
+
+Create `.env` from `.env.example` (PowerShell):
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Then set `DATABASE_URL` and replace `JWT_SECRET` with a cryptographically random value of at least 32 bytes. For example:
+
+```sh
+node -e "console.log(require('node:crypto').randomBytes(48).toString('base64'))"
+```
+
+Set `CORS_ORIGIN` to the trusted frontend origin(s), comma-separated when there is more than one. In production, `NODE_ENV=production` enables Secure cookies; cross-origin HTTPS sessions use `SameSite=None`. Never commit `.env` or use the included local Compose credentials in production.
+
+Install dependencies and start the API:
+
+```sh
+npm install
+npm start
+```
+
+The API listens on `PORT` (default `3000`). `GET /health` is a liveness check. Start the optional React development client in a second terminal:
 
 ```sh
 npm --prefix client install
 npm run dev:client
 ```
 
-Open the Vite URL (by default `http://localhost:5173`). The development server proxies API requests to `http://localhost:3000`. To use another API origin, set `VITE_API_URL` in `client/.env.local`. Keep the frontend and API on the same site when using the default strict session cookie.
+### Run the concurrency suite
 
-## Environment variables
-
-| Variable | Required | Default | Description |
-| --- | --- | --- | --- |
-| `DATABASE_URL` | Yes | — | PostgreSQL connection string (Supabase PostgreSQL is supported) |
-| `JWT_SECRET` | Yes | — | HS256 signing key; at least 32 bytes |
-| `PORT` | No | `3000` | HTTP listen port |
-| `JWT_EXPIRES_IN` | No | `1h` | JWT lifetime |
-| `COOKIE_SECURE` | No | `true` in production, otherwise `false` | Enables Secure cookies; Secure cookies use `SameSite=None` for cross-origin frontend/API requests |
-| `CORS_ORIGIN` | No | Local and deployed frontend origins | Additional trusted browser origins (comma-separated) |
-| `PG_POOL_MAX` | No | `10` | Maximum PostgreSQL pool size |
-| `API_URL` | No | `http://localhost:3000` | Base URL used by the concurrency test |
-| `VITE_API_URL` | No | Vite proxy | Optional API base URL for the React app |
-
-## API
-
-- `POST /api/auth/register` — JSON `{ "username": "alice or alice@example.com", "password": "at-least-12-chars" }`; creates a user with 1000 units and returns a session token.
-- `POST /api/auth/login` — JSON `{ "username": "alice or alice@example.com", "password": "..." }`; returns a session token.
-- `POST /api/auth/logout` — clears the session cookie.
-- `GET /api/users/me` — authenticated account details.
-- `GET /api/users` — up to 100 other account usernames for the transfer recipient list.
-- `POST /api/transfers` — authenticated JSON `{ "receiverId": 2, "amount": 100 }`. An optional `Idempotency-Key` header must be a UUID. Repeating the same key and payload returns the original response without executing another transfer; reusing a key with a different payload returns `409`. `senderId` is never read from the request; the authenticated identity is the sender.
-- `GET /api/transfers` — the authenticated user's 20 most recent sent or received transfers.
-
-Authentication accepts either the `token` HttpOnly cookie or an `Authorization: Bearer <token>` header. Token responses include the token for clients that prefer header-based authentication. Configure HTTPS and `COOKIE_SECURE=true` in production. Use a specific trusted `CORS_ORIGIN`; do not use wildcard origins with credentials.
-
-## Architecture and integrity safeguards
-
-- Routes handle protocol wiring and middleware; controllers translate HTTP input/output; services own validation, SQL, and transaction behavior. PostgreSQL pool and environment configuration live under `src/config`.
-- Passwords are bcrypt-hashed; JWTs are signed with HS256 and verified with an algorithm allowlist. Auth endpoints are rate-limited, request bodies are size-limited, and Helmet sets common security headers.
-- Transfer execution checks the authenticated sender, receiver ID, positive integer amount, and self-transfer restriction. It acquires one dedicated pool client and always releases it.
-- Transfers use `BEGIN`/`COMMIT`/`ROLLBACK`. Both account rows are locked with `SELECT ... FOR UPDATE` in ascending user-ID order. Consistent lock ordering prevents opposite-direction transfer deadlocks; row locks prevent concurrent requests from spending the same balance.
-- Sender debit, receiver credit, and the transfer audit row are in the same transaction. Any failure rolls all three back. Database constraints independently enforce nonnegative balances, positive amounts, valid users, and different sender/receiver accounts.
-- Idempotency records are scoped to the authenticated user and saved in the transfer transaction with the original response body. Successful transfers and idempotent replays are written to `audit_logs`; failures are audited after the transfer transaction rolls back.
-- Use TLS to PostgreSQL in production, provision a least-privilege database role, keep secrets outside source control, and back up the database. The included Compose credentials are for local development only.
-
-## Concurrency and double-spending test
-
-With the API and database running and `.env` configured, run:
+With `.env` configured and the API/database running:
 
 ```sh
 npm run test:concurrency
 ```
 
-The script registers two temporary accounts, verifies that only one of two concurrent withdrawals can spend the available balance, runs opposite-direction transfers concurrently, and retries an identical transfer with the same idempotency key. It checks that the original response is replayed, key reuse with a different payload is rejected, failures are audited, balances remain nonnegative, and the combined balance remains 2000. It also sends a forged `senderId` in request JSON and confirms the authenticated account remains the sender.
+The test uses `API_URL` when set (otherwise `http://localhost:3000`) and the `DATABASE_URL` from `.env`. It creates temporary users and cleans their test records on completion. Run it only against a database reserved for development or testing.
+
+### API reference
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Liveness check |
+| `POST` | `/api/auth/register` | Register `{ "username": "alice", "password": "at-least-12-chars" }`; creates an account with 1000 units |
+| `POST` | `/api/auth/login` | Authenticate with username or email and password |
+| `POST` | `/api/auth/logout` | Clear the session cookie |
+| `GET` | `/api/users/me` | Get the authenticated account |
+| `GET` | `/api/users` | List up to 100 other accounts as transfer recipients |
+| `POST` | `/api/transfers` | Transfer `{ "receiverId": 2, "amount": 100 }`; optional UUID `Idempotency-Key` header |
+| `GET` | `/api/transfers` | Get the authenticated account's 20 most recent sent or received transfers |
+
+Authenticated routes accept the HttpOnly `token` cookie or an `Authorization: Bearer <token>` header. Login and registration return a token and set the session cookie. Use HTTPS, a strong secret, a specific trusted CORS origin, and least-privilege database credentials in production.
