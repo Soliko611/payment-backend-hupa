@@ -128,6 +128,20 @@ export async function executeTransfer(senderId, receiverId, amount, idempotencyK
     await client.query('BEGIN');
     transactionStarted = true;
 
+    const firstId = Math.min(senderId, receiverId);
+    const secondId = Math.max(senderId, receiverId);
+    const lockedUsers = new Map();
+    for (const userId of [firstId, secondId]) {
+      const result = await client.query(
+        'SELECT id, balance FROM users WHERE id = $1 FOR UPDATE',
+        [userId]
+      );
+      if (result.rowCount === 0) {
+        throw new HttpError(404, 'Sender or receiver account not found');
+      }
+      lockedUsers.set(userId, BigInt(result.rows[0].balance));
+    }
+
     if (idempotencyKey) {
       const reservation = await client.query(
         `INSERT INTO idempotency_keys (user_id, idempotency_key, request_hash, status)
@@ -158,20 +172,6 @@ export async function executeTransfer(senderId, receiverId, amount, idempotencyK
         }
         throw new HttpError(409, 'A request with this Idempotency-Key is already in progress');
       }
-    }
-
-    // Lock rows in ascending ID order so opposite-direction transfers cannot deadlock.
-    const lockOrder = [senderId, receiverId].sort((left, right) => left - right);
-    const lockedUsers = new Map();
-    for (const userId of lockOrder) {
-      const result = await client.query(
-        'SELECT id, balance FROM users WHERE id = $1 FOR UPDATE',
-        [userId]
-      );
-      if (result.rowCount === 0) {
-        throw new HttpError(404, 'Sender or receiver account not found');
-      }
-      lockedUsers.set(userId, BigInt(result.rows[0].balance));
     }
 
     const senderBalance = lockedUsers.get(senderId);
