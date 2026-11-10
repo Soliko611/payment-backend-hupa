@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, apiRequest } from './api.js';
 
 function formatUnits(value) {
@@ -178,26 +178,35 @@ function Dashboard({ user, onLogout, onUserUpdated }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const dashboardRequestController = useRef(null);
 
-  const refreshDashboard = useCallback(async () => {
+  const refreshDashboard = useCallback(async (signal) => {
+    if (signal.aborted) return;
     setLoading(true);
     setError('');
     try {
       const [usersResult, transfersResult] = await Promise.all([
-        apiRequest('/api/users'),
-        apiRequest('/api/transfers')
+        apiRequest('/api/users', { signal }),
+        apiRequest('/api/transfers', { signal })
       ]);
+      if (signal.aborted) return;
       setRecipients(usersResult.users);
       setTransfers(transfersResult.transfers);
     } catch (requestError) {
-      setError(requestError.message);
+      if (!signal.aborted) setError(requestError.message);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    refreshDashboard();
+    const controller = new AbortController();
+    dashboardRequestController.current = controller;
+    refreshDashboard(controller.signal);
+    return () => {
+      controller.abort();
+      dashboardRequestController.current = null;
+    };
   }, [refreshDashboard]);
 
   async function handleTransfer(event) {
@@ -214,21 +223,26 @@ function Dashboard({ user, onLogout, onUserUpdated }) {
       return;
     }
 
+    const signal = dashboardRequestController.current?.signal;
+    if (!signal || signal.aborted) return;
     setSending(true);
     try {
       await apiRequest('/api/transfers', {
         method: 'POST',
-        body: JSON.stringify({ receiverId: Number(recipientId), amount: parsedAmount })
+        body: JSON.stringify({ receiverId: Number(recipientId), amount: parsedAmount }),
+        signal
       });
-      const { user: updatedUser } = await apiRequest('/api/users/me');
+      if (signal.aborted) return;
+      const { user: updatedUser } = await apiRequest('/api/users/me', { signal });
+      if (signal.aborted) return;
       onUserUpdated(updatedUser);
       setAmount('');
       setNotice('Your transfer was sent successfully.');
-      await refreshDashboard();
+      await refreshDashboard(signal);
     } catch (requestError) {
-      setError(requestError.message);
+      if (!signal.aborted) setError(requestError.message);
     } finally {
-      setSending(false);
+      if (!signal.aborted) setSending(false);
     }
   }
 
@@ -405,11 +419,11 @@ export default function App() {
 
   async function handleLogout() {
     setSessionError('');
+    setUser(null);
     try {
       await apiRequest('/api/auth/logout', { method: 'POST' });
-      setUser(null);
     } catch (requestError) {
-      setSessionError(requestError.message);
+      setSessionError(`You have been signed out, but the server could not confirm logout: ${requestError.message}`);
     }
   }
 
