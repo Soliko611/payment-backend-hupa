@@ -84,22 +84,23 @@ function AuthScreen({ onAuthenticated }) {
     <main className="auth-page">
       <div className="auth-decoration auth-decoration-one" />
       <div className="auth-decoration auth-decoration-two" />
+      <div className="demo-banner">DEVELOPER PORTFOLIO DEMO • SIMULATED CURRENCY ONLY</div>
       <header className="auth-header"><Brand /></header>
       <section className="auth-layout">
         <div className="auth-intro">
-          <div className="eyebrow"><span className="status-dot" /> YOUR MONEY, IN GOOD HANDS</div>
-          <h1>Move money<br />with <em>more meaning.</em></h1>
-          <p>A calmer way to keep track of your wallet and send funds to the people who matter.</p>
+          <div className="eyebrow"><span className="status-dot" /> Full-Stack Portfolio Project • ACID Ledger Engine</div>
+          <h1>High-Concurrency<br /><em>Payment Ledger</em><br />Architecture</h1>
+          <p>Explore a portfolio project built to test concurrent transfers and balance integrity.</p>
           <div className="auth-note">
             <span className="note-icon"><Icon name="wallet" size={19} /></span>
-            <span><strong>Simple by design</strong><small>One clear place for your wallet.</small></span>
+            <span><strong>Simulated ledger</strong><small>Test balances only; no real currency.</small></span>
           </div>
         </div>
         <div className="auth-card">
           <div className="auth-card-heading">
             <span className="card-kicker">{mode === 'login' ? 'WELCOME BACK' : 'GET STARTED'}</span>
-            <h2>{mode === 'login' ? 'Sign in to your wallet' : 'Create your wallet'}</h2>
-            <p>{mode === 'login' ? 'Your wallet is right where you left it.' : 'It only takes a moment to get set up.'}</p>
+            <h2>{mode === 'login' ? 'Sign in to Demo Wallet' : 'Create your Demo Wallet account'}</h2>
+            <p>{mode === 'login' ? 'Sign in to explore the portfolio demo.' : 'Create a demo account to explore the ledger.'}</p>
           </div>
           <div className="auth-tabs" role="tablist" aria-label="Account action">
             <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setError(''); }}>Sign in</button>
@@ -137,14 +138,16 @@ function AuthScreen({ onAuthenticated }) {
             />
             {error && <p className="form-error" role="alert">{error}</p>}
             <button className="button button-primary auth-submit" type="submit" disabled={busy}>
-              {busy ? 'Please wait…' : mode === 'login' ? 'Sign in securely' : 'Create my account'}
+              {busy ? 'Please wait…' : mode === 'login' ? 'Sign in (Demo)' : 'Create demo account'}
               {!busy && <Icon name="arrow" size={18} />}
             </button>
           </form>
-          <p className="auth-footnote">Protected with encrypted sign-in and secure sessions.</p>
+          <p className="auth-footnote">Demo authentication for portfolio evaluation.</p>
         </div>
       </section>
-      <footer className="auth-footer"><span>© {new Date().getFullYear()} Northstar Wallet</span><span>Built for everyday moments.</span></footer>
+      <footer className="auth-footer">
+        <span>This is a demonstration project built for educational &amp; recruitment portfolio purposes. No real monetary transactions are processed; use demo-only credentials.</span>
+      </footer>
     </main>
   );
 }
