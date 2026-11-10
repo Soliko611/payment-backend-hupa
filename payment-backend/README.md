@@ -55,7 +55,7 @@ Open the Vite URL (by default `http://localhost:5173`). The development server p
 | `JWT_SECRET` | Yes | — | HS256 signing key; at least 32 bytes |
 | `PORT` | No | `3000` | HTTP listen port |
 | `JWT_EXPIRES_IN` | No | `1h` | JWT lifetime |
-| `COOKIE_SECURE` | No | `false` | Set `true` behind HTTPS in production |
+| `COOKIE_SECURE` | No | `true` in production, otherwise `false` | Enables Secure cookies; Secure cookies use `SameSite=None` for cross-origin frontend/API requests |
 | `CORS_ORIGIN` | No | Local and deployed frontend origins | Additional trusted browser origins (comma-separated) |
 | `PG_POOL_MAX` | No | `10` | Maximum PostgreSQL pool size |
 | `API_URL` | No | `http://localhost:3000` | Base URL used by the concurrency test |

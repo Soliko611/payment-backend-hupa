@@ -4,7 +4,7 @@ import { login, register } from '../services/authService.js';
 const cookieOptions = {
   httpOnly: true,
   secure: env.cookieSecure,
-  sameSite: 'strict',
+  sameSite: env.cookieSameSite,
   path: '/'
 };
 
