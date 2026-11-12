@@ -25,7 +25,7 @@ if (!Number.isInteger(poolMax) || poolMax < 1) {
 
 const corsOrigins = [
   'http://localhost:5173',
-  'https://payment-backend-hupa-1.onrender.com',
+  'https://soli-demo.onrender.com',
   ...(process.env.CORS_ORIGIN ?? '').split(',').map((origin) => origin.trim()).filter(Boolean)
 ];
 const cookieSecure = nodeEnv === 'production' || process.env.COOKIE_SECURE === 'true';
