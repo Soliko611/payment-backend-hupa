@@ -1,5 +1,5 @@
 const apiBaseUrl = (
-  import.meta.env.VITE_API_URL || 'https://payment-backend-hupa.onrender.com'
+  import.meta.env.VITE_API_URL || 'http://localhost:3000'
 ).replace(/\/+$/, '');
 
 export class ApiError extends Error {
